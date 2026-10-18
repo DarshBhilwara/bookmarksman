@@ -4,6 +4,8 @@ A small personal self hosted bookmark synchronizer: one Python/FastAPI server, J
 
 **The API has no authentication. Anyone able to reach it can read and change every collection. Run it only on your trusted LAN or mesh VPN; do not expose it to the public internet.**
 
+For step-by-step setup, your VPN address/port example, browser installation, and update instructions, see **[Running bookmarksman](RUNNING.md)**.
+
 ## Start the server
 
 Requires Docker with Compose:
