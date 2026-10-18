@@ -32,6 +32,19 @@ test('popup reconnects saved server and renders binding and persisted sync error
   assert.equal(ui.element('server').value,'http://localhost:8080');assert.match(ui.element('binding').textContent,/research/);assert.equal(ui.element('profileSection').hidden,false);
   assert.equal(ui.element('status').textContent,'Restore failed');assert.equal(ui.element('error').textContent,'disk offline');assert.equal(ui.element('auto').checked,false);
 });
+test('offline popup shows saved server and last synced profile without opening profile controls',async()=>{
+  const remembered={server:'http://old-server:8080',profile:'research'};
+  const state={serverSetting:'http://old-server:8080',lastSyncedBinding:remembered,status:'Sync failed',error:'offline'};
+  const ui=await popup(state,async({action})=>action==='status'?{ok:true,value:structuredClone(state)}:{ok:false,error:'offline',status:0});
+  assert.equal(ui.element('server').value,'http://old-server:8080');
+  assert.equal(ui.element('name').value,'research');
+  assert.match(ui.element('binding').textContent,/research/);assert.match(ui.element('binding').textContent,/old-server/);
+  assert.equal(ui.element('profileSection').hidden,true);
+  const different=await popup({...state,serverSetting:'http://new-server:8080'},async({action})=>action==='status'?{ok:true,value:{...state,serverSetting:'http://new-server:8080'}}:{ok:false,error:'offline',status:0});
+  assert.equal(different.element('server').value,'http://new-server:8080');
+  assert.equal(different.element('name').value,'');
+  assert.match(different.element('binding').textContent,/research/);
+});
 test('recovery export contains the selected individual snapshot and can be reimported',async()=>{
   const one=empty(),two=empty();two.roots.toolbar=[bookmark('saved')];
   const state={backups:[{id:'1',created_at:1000,label:'first',tree:one},{id:'2',created_at:2000,label:'second',tree:two}]};

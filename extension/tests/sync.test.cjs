@@ -77,6 +77,24 @@ test('pending offline edits survive worker restart, retry and only changed tree 
   await restarted.sync();assert.equal(Core.count(s.remote.get().tree),1);assert.equal(s.state().dirty,false);
   await restarted.sync();assert.equal(s.remote.calls.filter(c=>c.options.method==='PUT').length,1);
 });
+test('successful binding is persisted for a fresh worker and failed reconnect retains last successful profile',async()=>{
+  const s=setup();await bind(s);
+  assert.deepEqual(s.state().lastSyncedBinding,{server:'http://localhost:8080',profile:'research'});
+  const restarted=new Engine(s.api,{browser:null,fetch:s.remote.fetch,setTimeout:()=>1,clearTimeout:()=>{}});
+  assert.deepEqual((await restarted.state()).lastSyncedBinding,{server:'http://localhost:8080',profile:'research'});
+  s.remote.offline(true);
+  await assert.rejects(restarted.connect('http://different:8080'),/offline/);
+  assert.equal(s.state().serverSetting,'http://different:8080');
+  assert.equal(s.state().server,'http://localhost:8080');assert.equal(s.state().profile,'research');
+  assert.deepEqual(s.state().lastSyncedBinding,{server:'http://localhost:8080',profile:'research'});
+});
+test('switching servers migrates a legacy binding into last-successful history without binding it to the new server',async()=>{
+  const s=setup();
+  s.setState({server:'http://localhost:8080',profile:'research',name:'research',connected:true});
+  await s.engine.connect('http://new-server:8080');
+  assert.equal(s.state().server,'http://new-server:8080');assert.equal(s.state().profile,null);
+  assert.deepEqual(s.state().lastSyncedBinding,{server:'http://localhost:8080',profile:'research'});
+});
 test('poll detects missed events after suspension using saved baseline',async()=>{
   const s=setup();await bind(s);
   await s.api.bookmarks.create({parentId:s.ids.toolbar,title:'missed',url:'https://example.com/missed'});
@@ -122,6 +140,23 @@ test('switching collection replaces local tree and keeps the prior snapshot',asy
   const s=setup();await bind(s,rich());const old=await s.engine.localTree();
   const next=empty();next.roots.other=[bookmark('work')];const profile={...s.remote.get(),name:'work',tree:next,updated_at:2000};
   await s.engine.bind('http://localhost:8080','work',profile);assert.equal(s.state().profile,'work');assert.deepEqual(await s.engine.localTree(),next);assert.ok(s.state().backups.some(b=>Core.equal(b.tree,old)));
+});
+test('successful profile rename updates the remembered binding name',async()=>{
+  const s=setup();await bind(s);
+  s.engine.fetch=async(url)=>({ok:true,status:200,json:async()=>({schema_version:1,name:'work',updated_at:1001,tree:empty()})});
+  await s.engine.rename('work');
+  assert.deepEqual(s.state().lastSyncedBinding,{server:'http://localhost:8080',profile:'work'});
+});
+test('repeated recover and recovery-file imports preserve prior last-successful binding',async()=>{
+  const remembered={server:'http://localhost:8080',profile:'research'};
+  const recovering=setup();
+  recovering.setState({lastSyncedBinding:remembered,backups:[{id:'seed',tree:empty(),created_at:1,label:'seed'}]});
+  await recovering.engine.recover();await recovering.engine.recover();
+  assert.deepEqual(recovering.state().lastSyncedBinding,remembered);
+
+  const importing=setup();importing.setState({lastSyncedBinding:remembered});
+  await importing.engine.importBackup(empty());await importing.engine.importBackup(empty());
+  assert.deepEqual(importing.state().lastSyncedBinding,remembered);
 });
 test('invalid recovery file and remote profile never clear any local bookmarks',async()=>{
   const s=setup();await bind(s,rich());const before=await s.engine.localTree();
@@ -179,11 +214,15 @@ test('native import events defer automatic synchronization until the complete tr
   s.event('onImportEnded');await s.engine.serial;await s.engine.sync(true);
   assert.equal(Core.count(s.remote.get().tree),1);
 });
-test('Firefox Window timers retain their receiver during connect and profile binding',async()=>{
+test('Firefox Window fetch and timers retain their receiver during connect and profile binding',async()=>{
   const vm=require('node:vm'),fs=require('node:fs');
   const mock=fixture(true),remote=server();
-  const context=vm.createContext({URL,AbortController,api:mock.api,fetch:remote.fetch,timerCalls:0,clearCalls:0});
+  const context=vm.createContext({URL,AbortController,api:mock.api,delegateFetch:remote.fetch,fetchCalls:0,timerCalls:0,clearCalls:0});
   vm.runInContext(`
+    globalThis.fetch = function (...args) {
+      if (this !== globalThis) throw new TypeError("'fetch' called on an object that does not implement interface Window");
+      fetchCalls++; return delegateFetch(...args);
+    };
     globalThis.setTimeout = function () {
       if (this !== globalThis) throw new TypeError("'setTimeout' called on an object that does not implement interface Window");
       timerCalls++; return timerCalls;
@@ -194,12 +233,26 @@ test('Firefox Window timers retain their receiver during connect and profile bin
     };
   `,context);
   for(const path of ['../shared/core.js','../shared/engine.js'])vm.runInContext(fs.readFileSync(require.resolve(path),'utf8'),context);
-  await vm.runInContext(`globalThis.engine = new BMEngine.Engine(api, {browser: {}, fetch}); engine.connect('http://100.120.83.124:1024')`,context);
+  await vm.runInContext(`globalThis.engine = new BMEngine.Engine(api, {browser: {}}); engine.connect('http://100.120.83.124:1024')`,context);
   assert.equal(mock.state().server,'http://100.120.83.124:1024');
   await vm.runInContext(`engine.profile('http://100.120.83.124:1024', 'research').then(profile => engine.bind('http://100.120.83.124:1024', 'research', profile))`,context);
   assert.equal(mock.state().profile,'research');
   assert.equal(mock.state().auto,true);assert.equal(remote.calls.filter(call=>call.options.method==='POST').length,0);
   const saved=await vm.runInContext(`new BMEngine.Engine(api, {browser: {}, fetch}).state()`,context);
   assert.equal(saved.server,'http://100.120.83.124:1024');assert.equal(saved.name,'research');
+  await vm.runInContext(`new BMEngine.Engine(api, {browser: {}, fetch}).connect('http://100.120.83.124:1024')`,context);
+  assert.ok(context.fetchCalls >= 5);
   assert.ok(context.timerCalls>=3);assert.equal(context.clearCalls,context.timerCalls);
+});
+test('missing host permission is reported separately without making a network request',async()=>{
+  const s=setup();let requested;
+  s.api.permissions={contains:async details=>{requested=details;return false;}};
+  await assert.rejects(s.engine.connect('http://100.120.83.124:1024'),/permission is missing/);
+  assert.deepEqual(requested,{origins:['http://100.120.83.124/*']});assert.equal(s.remote.calls.length,0);
+});
+test('Firefox network failure reports the exact endpoint and does not create a profile',async()=>{
+  const s=setup();s.api.permissions={contains:async()=>true};
+  s.engine.fetch=async()=>{const error=new Error('NetworkError when attempting to fetch resource.');error.name='NetworkError';throw error;};
+  await assert.rejects(s.engine.connect('http://100.120.83.124:1024'),error=>error.message.includes('http://100.120.83.124:1024/api/health')&&error.message.includes('NetworkError'));
+  assert.equal(s.state().connected,false);assert.equal(s.remote.calls.length,0);
 });

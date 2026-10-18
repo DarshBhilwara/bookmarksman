@@ -1,5 +1,11 @@
 FROM python:3.12-slim
 
+ARG BOOKMARKSMAN_VERSION=dev
+LABEL org.opencontainers.image.title="bookmarksman" \
+      org.opencontainers.image.description="Self-hosted cross-browser bookmark synchronization server" \
+      org.opencontainers.image.source="https://github.com/DarshBhilwara/bookmarksman" \
+      org.opencontainers.image.version="${BOOKMARKSMAN_VERSION}"
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     BOOKMARKSMAN_DATA=/data/profiles

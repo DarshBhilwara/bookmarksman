@@ -5,6 +5,14 @@ const $ = id => document.getElementById(id);
 let busy = false;
 let current = {};
 let connectedServer = null;
+function lastBinding() {
+  return current.lastSyncedBinding || (current.server && current.name ? {server: current.server, profile: current.name} : null);
+}
+function profileForServer(server) {
+  const remembered = lastBinding();
+  if (current.server === server && current.name) return current.name;
+  return remembered?.server === server ? remembered.profile : '';
+}
 async function message(action, fields = {}) {
   const response = await api.runtime.sendMessage({action, ...fields});
   if (!response || response.ok !== true) {
@@ -32,7 +40,8 @@ async function permission(server) {
 function render(state) {
   current = state || {};
   $('auto').checked = Boolean(current.auto);
-  $('binding').textContent = current.name ? `Syncing profile: ${current.name}\nServer: ${current.server}` : 'No profile bound yet.';
+  const remembered = lastBinding();
+  $('binding').textContent = remembered ? `Last synced profile: ${remembered.profile}\nServer: ${remembered.server}` : 'No profile synced yet.';
   $('status').textContent = current.status || 'Connect to your server to begin.';
   $('error').textContent = current.error || '';
   const date = value => value ? new Date(value).toLocaleString() : 'Never';
@@ -50,8 +59,11 @@ function updateVisibility() {
   $('profileSection').hidden = !sameServer;
   $('syncControls').hidden = !sameServer || !current.name || current.server !== connectedServer;
   $('rename').hidden = !current.name || !sameServer;
-  if (!sameServer) $('binding').textContent = 'Connect to your server to choose a profile.';
-  else $('binding').textContent = current.name && current.server === connectedServer ? `Syncing profile: ${current.name}\nServer: ${current.server}` : 'Connected. Enter a profile name to begin syncing.';
+  const remembered = lastBinding();
+  if (sameServer && current.name && current.server === connectedServer) $('binding').textContent = `Syncing profile: ${current.name}\nServer: ${current.server}`;
+  else if (remembered) $('binding').textContent = `Last synced profile: ${remembered.profile}\nServer: ${remembered.server}`;
+  else if (sameServer) $('binding').textContent = 'Connected. Enter a profile name to begin syncing.';
+  else $('binding').textContent = 'Connect to your server to choose a profile.';
 }
 async function refresh() { render(await message('status')); }
 async function run(task) {
@@ -69,7 +81,7 @@ async function list(server) {
   connectedServer = server;
   $('profiles').replaceChildren();
   for (const profile of response.profiles || []) $('profiles').append(new Option(profile.name, profile.name));
-  $('name').value = current.server === server ? (current.name || '') : '';
+  $('name').value = profileForServer(server);
   updateVisibility();
 }
 $('connection').addEventListener('submit', event => {
@@ -131,8 +143,11 @@ $('backupFile').onchange = () => run(async () => {
 (async () => {
   try {
     await refresh();
-    $('server').value = current.server || '';
-    if (current.server) await list(current.server);
+    const remembered = lastBinding();
+    const savedServer = current.serverSetting || current.server || remembered?.server || '';
+    $('server').value = savedServer;
+    $('name').value = profileForServer(savedServer);
+    if (savedServer) await list(savedServer);
   } catch (error) {
     connectedServer = null;
     $('error').textContent = error.message;

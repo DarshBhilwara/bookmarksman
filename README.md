@@ -6,6 +6,10 @@ A small personal self hosted bookmark synchronizer: one Python/FastAPI server, J
 
 For step-by-step setup, your VPN address/port example, browser installation, and update instructions, see **[Running bookmarksman](RUNNING.md)**.
 
+## Docker Hub distribution
+
+The backend image is configured for `darshbhilwara/bookmarksman` on Docker Hub; the browser extension sources and local-installation packages stay in this repository. See [Docker Hub publishing and installation](docs/DOCKERHUB.md). Use `docker-compose.dockerhub.yml` to run a published image, or the original `docker-compose.yml` to build locally. The image version must be published before the pull-based setup works.
+
 ## Start the server
 
 Requires Docker with Compose:
@@ -13,12 +17,12 @@ Requires Docker with Compose:
 ```sh
 cp .env.example .env
 docker compose up -d --build
-curl http://localhost:8080/api/health
+curl http://localhost:1024/api/health
 docker compose logs -f
 docker compose down
 ```
 
-The default published port is 8080. Edit `.env` to change the published port/address. Set the bind address to your VPN interface address if you only want VPN access. Persistent JSON files live in the Compose volume at `/data/profiles`, independently of container recreation. Do not run `docker compose down -v` unless you intend to delete the data.
+The supplied `.env.example` uses host port 1024; Compose falls back to 8080 when `BOOKMARKSMAN_PORT` is unset. Edit `.env` to change the published port/address. Set the bind address to your VPN interface address if you only want VPN access. Persistent JSON files live in the Compose volume at `/data/profiles`, independently of container recreation. Do not run `docker compose down -v` unless you intend to delete the data.
 
 ## Install the extension
 
@@ -40,7 +44,7 @@ Target minimum versions: Chrome 120 and Firefox 128. The extension shares its co
 3. On another browser, connect to the same server, enter the existing collection name, and click **Use profile**. Confirm replacement after checking counts.
 4. Automatic synchronization is enabled after binding. **Sync now** performs an immediate reconciliation. The popup shows the bound collection, status, last success, and server revision.
 
-Names use 1–64 ASCII letters, digits, underscores, or hyphens. Each browser profile stores its own settings. To switch collections, enter another name and confirm replacement if it already exists. **Rename current profile** renames the server collection; browsers bound to the old name must select the new one. Disable Chrome Sync / Firefox Sync for bookmarks while using bookmarksman so two independent synchronization systems do not fight each other.
+Names use 1–64 ASCII letters, digits, underscores, or hyphens. Each browser profile stores its server URL and last successfully synced profile name. The popup restores them before connecting and shows the remembered pair while offline; profile actions remain gated until the server connection succeeds. A failed connection or restore retains the last successful profile. These settings survive ordinary extension reloads and browser restarts while the add-on remains installed. Firefox temporary add-ons are removed when Firefox closes, so use a signed/permanent installation if you want the add-on itself to remain installed after restart. Uninstalling the add-on or clearing its storage can erase local settings. To switch collections, enter another name and confirm replacement if it already exists. **Rename current profile** renames the server collection; browsers bound to the old name must select the new one. Disable Chrome Sync / Firefox Sync for bookmarks while using bookmarksman so two independent synchronization systems do not fight each other.
 
 ## Synchronization and recovery
 

@@ -15,7 +15,8 @@
     constructor(api, options) {
       this.api = api;
       this.browser = options.browser;
-      this.fetch = options.fetch || fetch;
+      // Firefox Window.fetch rejects calls with an Engine as its receiver.
+      this.fetch = (options.fetch || globalThis.fetch).bind(globalThis);
       this.now = options.now || (() => Date.now());
       // Firefox's Window timer methods require their native global receiver.
       // Storing the methods directly would call them with this Engine instead.
@@ -35,6 +36,9 @@
       await this.api.storage.local.set({ bm: next });
       return next;
     }
+    rememberedBinding(server, profile) {
+      return server && profile ? { server, profile } : null;
+    }
     enqueue(fn) {
       const next = this.serial.then(fn, fn);
       this.serial = next.catch(() => {});
@@ -44,6 +48,12 @@
       const parsed = new URL(server);
       if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password || parsed.search || parsed.hash) throw new Error("Server URL must be a plain HTTP(S) address");
       const url = parsed.href.replace(/\/+$/, "") + path;
+      if (this.api.permissions && this.api.permissions.contains) {
+        const pattern = parsed.protocol + "//" + parsed.hostname + "/*";
+        if (!await this.api.permissions.contains({ origins: [pattern] })) {
+          throw new Error("Server access permission is missing for " + parsed.hostname + ". Open the popup, click Connect, and allow server access.");
+        }
+      }
       const controller = new AbortController();
       const timeout = this.timer(() => controller.abort(), 12000);
       try {
@@ -55,7 +65,13 @@
         }
         return response.status === 204 ? null : await response.json();
       }
-      catch (error) { if (error.name === "AbortError") throw new Error("Server request timed out"); throw error; }
+      catch (error) {
+        if (error.name === "AbortError") throw new Error("Server request timed out: " + url);
+        if (!error.status && (error.name === "NetworkError" || error.name === "TypeError")) {
+          throw new Error("Request failed: " + url + ". " + error.message + " Open " + parsed.href.replace(/\/+$/, "") + "/api/health in this browser to check connectivity; if it loads, check the extension's server permission and browser console.");
+        }
+        throw error;
+      }
       finally { this.clearTimer(timeout); }
     }
     async localTree() {
@@ -69,19 +85,23 @@
     }
     async connect(server) {
       return this.enqueue(async () => {
+        if (server) await this.save({ serverSetting: server });
         let result;
         try { result = await this.serverStatus(server); }
         catch (error) { await this.save({ connected: false, error: error.message }); throw error; }
         const state = await this.state();
         if (state.restore) throw new Error("Recover the interrupted bookmark restore before changing servers");
         if (state.server !== server) {
+          const lastSyncedBinding = state.lastSyncedBinding || this.rememberedBinding(state.server, state.profile || state.name);
           if (state.profile) {
             const local = await this.localTree();
             if (state.dirty || !state.baseline || !Core.equal(local, state.baseline)) await this.snapshot("Unbound while connecting to another server", local);
           }
-          await this.save({ server, connected: true, profile: null, name: null, auto: false, dirty: false, baseline: null, last_seen_server_updated_at: null, status: "Connected; choose a profile", error: "" });
+          const patch = { server, serverSetting: server, connected: true, profile: null, name: null, auto: false, dirty: false, baseline: null, last_seen_server_updated_at: null, status: "Connected; choose a profile", error: "" };
+          if (lastSyncedBinding) patch.lastSyncedBinding = lastSyncedBinding;
+          await this.save(patch);
           await this.configureAlarm(false);
-        } else await this.save({ connected: true, status: state.profile ? state.status : "Connected; choose a profile", error: "" });
+        } else await this.save({ serverSetting: server, connected: true, status: state.profile ? state.status : "Connected; choose a profile", error: "" });
         return result;
       });
     }
@@ -121,7 +141,7 @@
             profile = await this.profile(server, name);
             return { created: false, localCount: Core.count(tree), serverCount: Core.count(profile.tree), profile };
           }
-          await this.save({ server, connected: true, profile: name, auto: true, dirty: false, baseline: tree, last_seen_server_updated_at: profile.updated_at, lastSync: this.now(), status: "Synced", error: "", restore: null });
+          await this.save({ server, connected: true, profile: name, auto: true, dirty: false, baseline: tree, last_seen_server_updated_at: profile.updated_at, lastSync: this.now(), status: "Synced", error: "", restore: null, lastSyncedBinding: this.rememberedBinding(server, name) });
           await this.configureAlarm(true);
           return { created: true, localCount: Core.count(tree), serverCount: Core.count(tree), profile };
         }
@@ -157,7 +177,11 @@
         if (!Core.equal(actual, desired)) throw new Error("Browser bookmark tree verification failed");
         const current = await this.state();
         const conflict = !!(config && config.conflict);
-        await this.save({ server: config && config.server || current.server, profile: config && config.profile || current.profile, auto: config && config.auto !== undefined ? config.auto : current.auto, dirty: false, baseline: desired, last_seen_server_updated_at: timestamp, lastSync: this.now(), status: conflict ? "Conflict resolved: server version applied; local snapshot preserved" : "Synced", error: "", restore: null, conflict: conflict ? "Pending local copy preserved" : "" });
+        const server = config && config.server || current.server;
+        const profile = config && config.profile || current.profile;
+        const patch = { server, profile, auto: config && config.auto !== undefined ? config.auto : current.auto, dirty: false, baseline: desired, last_seen_server_updated_at: timestamp, lastSync: this.now(), status: conflict ? "Conflict resolved: server version applied; local snapshot preserved" : "Synced", error: "", restore: null, conflict: conflict ? "Pending local copy preserved" : "" };
+        if (!(config && config.recovery)) patch.lastSyncedBinding = this.rememberedBinding(server, profile);
+        await this.save(patch);
       } catch (error) {
         await this.save({ status: "Restore failed; local snapshot preserved", error: error.message, restore: Object.assign({}, restore, { phase: "failed", error: error.message }), auto: false, dirty: true });
         throw error;
@@ -242,9 +266,9 @@
           const updated = Core.validateProfile(await this.request(s.server, "/api/profiles/" + encodeURIComponent(s.profile), { method: "PUT", body: JSON.stringify({ tree: local, base_updated_at: s.last_seen_server_updated_at }) }), s.profile);
           const afterUpload = await this.localTree();
           const changedDuringUpload = !Core.equal(local, afterUpload);
-          await this.save({ dirty: changedDuringUpload, baseline: changedDuringUpload ? local : afterUpload, last_seen_server_updated_at: updated.updated_at, lastSync: this.now(), status: changedDuringUpload ? "More local changes pending" : "Synced", error: "" });
+          await this.save({ dirty: changedDuringUpload, baseline: changedDuringUpload ? local : afterUpload, last_seen_server_updated_at: updated.updated_at, lastSync: this.now(), status: changedDuringUpload ? "More local changes pending" : "Synced", error: "", lastSyncedBinding: this.rememberedBinding(s.server, s.profile) });
           if (changedDuringUpload) this.scheduleUpload();
-        } else await this.save({ lastSync: this.now(), status: "Synced", error: "" });
+        } else await this.save({ lastSync: this.now(), status: "Synced", error: "", lastSyncedBinding: this.rememberedBinding(s.server, s.profile) });
         return this.state();
       } catch (error) {
         await this.save({ status: error.status === 409 ? "Conflict" : "Sync failed", error: error.message });
@@ -311,7 +335,7 @@
       const s = await this.state();
       const backup = s.restore ? (s.backups || []).find(b => b.id === s.restore.backup) : (s.backups || [])[0];
       if (!backup) throw new Error("No local recovery snapshot is available");
-      await this.apply(backup.tree, s.last_seen_server_updated_at || 0, { server: s.server, profile: s.profile, auto: false, recoveryBackupId: s.restore && s.restore.backup });
+      await this.apply(backup.tree, s.last_seen_server_updated_at || 0, { server: s.server, profile: s.profile, auto: false, recovery: true, recoveryBackupId: s.restore && s.restore.backup });
       await this.save({ auto: false, profile: null, name: null, dirty: false, status: "Local snapshot restored; sync paused" });
       await this.configureAlarm(false);
       return this.state();
@@ -323,7 +347,7 @@
       const cleaned = Core.cleanTree(tree);
       await this.snapshot("Before importing recovery file");
       const state = await this.state();
-      await this.apply(cleaned, 0, { auto: false, recoveryBackupId: state.restore && state.restore.backup });
+      await this.apply(cleaned, 0, { auto: false, recovery: true, recoveryBackupId: state.restore && state.restore.backup });
       await this.save({ auto: false, profile: null, name: null, dirty: false, status: "Recovery file restored; sync paused" });
       await this.configureAlarm(false);
       return this.state();
@@ -335,7 +359,7 @@
         if (!s.server || !s.profile) throw new Error("Bind a profile before renaming it");
         const result = await this.request(s.server, "/api/profiles/" + encodeURIComponent(s.profile) + "/rename", { method: "POST", body: JSON.stringify({ name, base_updated_at: s.last_seen_server_updated_at }) });
         Core.validateProfile(result, name);
-        await this.save({ profile: name, last_seen_server_updated_at: result.updated_at ?? s.last_seen_server_updated_at, status: "Profile renamed", error: "" });
+        await this.save({ profile: name, last_seen_server_updated_at: result.updated_at ?? s.last_seen_server_updated_at, status: "Profile renamed", error: "", lastSyncedBinding: this.rememberedBinding(s.server, name) });
         return this.state();
       });
     }
