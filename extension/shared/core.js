@@ -38,11 +38,15 @@
   function nativeRoots(tree) {
     const top = Array.isArray(tree) ? tree : [];
     let immediate = top;
-    if (top.length === 1 && top[0].children && ["0", "root________"].includes(String(top[0].id))) immediate = top[0].children;
+    // getTree() returns one synthetic root node in both Chromium and Firefox.
+    // Chromium no longer guarantees IDs for its permanent folders, and Firefox
+    // uses different IDs, so identify the children by folderType where present.
+    if (top.length === 1 && Array.isArray(top[0].children)) immediate = top[0].children;
     const byId = { "1": "toolbar", "2": "other", "3": "mobile", "toolbar_____": "toolbar", "menu________": "menu", "unfiled_____": "other", "mobile______": "mobile" };
+    const byFolderType = { "bookmarks-bar": "toolbar", other: "other", mobile: "mobile" };
     const found = {}, unknown = [];
     for (const item of immediate) {
-      const name = byId[String(item.id)];
+      const name = byFolderType[item.folderType] || byId[String(item.id)];
       if (!name || !item.children) { unknown.push(item); continue; }
       if (found[name]) throw new Error("Duplicate permanent bookmark root: " + name);
       found[name] = item;

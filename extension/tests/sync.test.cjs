@@ -20,6 +20,19 @@ test('Chrome restores hierarchy, exact ordering, empty folders, preserves perman
   assert.deepEqual(await firefox.engine.localTree(),rich());
   await bind(chrome,await firefox.engine.localTree());assert.deepEqual(await chrome.engine.localTree(),rich());
 });
+test('Chromium roots with changing IDs are recognized by folderType',()=>{
+  const tree=[{id:'browser-root',title:'',children:[
+    {id:'random-toolbar-id',folderType:'bookmarks-bar',title:'Bookmarks bar',children:[]},
+    {id:'random-other-id',folderType:'other',title:'Other bookmarks',children:[]},
+    {id:'random-mobile-id',folderType:'mobile',title:'Mobile bookmarks',children:[]}
+  ]}];
+  const roots=Core.nativeRoots(tree);
+  assert.equal(roots.found.toolbar.id,'random-toolbar-id');
+  assert.equal(roots.found.other.id,'random-other-id');
+  assert.equal(roots.found.mobile.id,'random-mobile-id');
+  assert.deepEqual(roots.unknown,[]);
+  assert.deepEqual(Core.normalizeBrowserTree(tree),empty());
+});
 test('root recognition never treats a user folder named Other bookmarks as a permanent root',async()=>{
   const s=setup();await s.api.bookmarks.create({parentId:s.ids.toolbar,title:'Other bookmarks'});
   const child=s.find(s.ids.toolbar).children[0];await s.api.bookmarks.create({parentId:child.id,title:'keep',url:'https://example.com'});
