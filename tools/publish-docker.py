@@ -61,12 +61,13 @@ def commands(args: argparse.Namespace, platforms: list[str]) -> list[list[str]]:
     for tag in tags:
         build.extend(["--tag", f"{image}:{tag}"])
     build.extend(["--build-arg", f"BOOKMARKSMAN_VERSION={args.version}"])
-    if args.push:
-        build.append("--push")
-    else:
-        build.append("--load")
+    if platforms:
+        build.append("--push" if args.push else "--load")
     build.extend(["--file", str(dockerfile), str(context)])
-    return [build]
+    plan = [build]
+    if args.push and not platforms:
+        plan.extend([["docker", "push", f"{image}:{tag}"] for tag in tags])
+    return plan
 
 
 def main(argv: list[str] | None = None) -> int:

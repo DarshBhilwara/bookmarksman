@@ -6,15 +6,15 @@ Synchronize bookmark collections between Chrome and Firefox using a server you c
 
 ```sh
 docker run -d --name bookmarksman \
-  -p 8080:8080 \
+  -p 1024:8080 \
   -v bookmarksman-data:/data \
   --restart unless-stopped \
   darshbhilwara/bookmarksman:1.0.0
 
-curl http://localhost:8080/api/health
+curl http://localhost:1024/api/health
 ```
 
-The health endpoint returns `{"status":"ok"}`. Keep the data volume mounted at `/data`; collections are stored under `/data/profiles`. To restrict access, bind port 8080 to your private LAN or VPN address.
+The health endpoint returns `{"status":"ok"}`. Keep the data volume mounted at `/data`; collections are stored under `/data/profiles`. To restrict access, bind host port 1024 to your private LAN or VPN address. The container listens internally on port 8080.
 
 The API has no authentication. Anyone with network access can read or change every collection. Run bookmarksman only on a trusted private network. Do not expose it to the public internet.
 

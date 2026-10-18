@@ -28,20 +28,20 @@ async function popup(state, sendMessage, confirm = () => true) {
   return {element,downloads,grants};
 }
 test('popup reconnects saved server and renders binding and persisted sync errors',async()=>{
-  const ui=await popup({server:'http://localhost:8080',name:'research',auto:false,status:'Restore failed',error:'disk offline',lastSync:1000,last_seen_server_updated_at:2000});
-  assert.equal(ui.element('server').value,'http://localhost:8080');assert.match(ui.element('binding').textContent,/research/);assert.equal(ui.element('profileSection').hidden,false);
+  const ui=await popup({server:'http://localhost:1024',name:'research',auto:false,status:'Restore failed',error:'disk offline',lastSync:1000,last_seen_server_updated_at:2000});
+  assert.equal(ui.element('server').value,'http://localhost:1024');assert.match(ui.element('binding').textContent,/research/);assert.equal(ui.element('profileSection').hidden,false);
   assert.equal(ui.element('status').textContent,'Restore failed');assert.equal(ui.element('error').textContent,'disk offline');assert.equal(ui.element('auto').checked,false);
 });
 test('offline popup shows saved server and last synced profile without opening profile controls',async()=>{
-  const remembered={server:'http://old-server:8080',profile:'research'};
-  const state={serverSetting:'http://old-server:8080',lastSyncedBinding:remembered,status:'Sync failed',error:'offline'};
+  const remembered={server:'http://old-server:1024',profile:'research'};
+  const state={serverSetting:'http://old-server:1024',lastSyncedBinding:remembered,status:'Sync failed',error:'offline'};
   const ui=await popup(state,async({action})=>action==='status'?{ok:true,value:structuredClone(state)}:{ok:false,error:'offline',status:0});
-  assert.equal(ui.element('server').value,'http://old-server:8080');
+  assert.equal(ui.element('server').value,'http://old-server:1024');
   assert.equal(ui.element('name').value,'research');
   assert.match(ui.element('binding').textContent,/research/);assert.match(ui.element('binding').textContent,/old-server/);
   assert.equal(ui.element('profileSection').hidden,true);
-  const different=await popup({...state,serverSetting:'http://new-server:8080'},async({action})=>action==='status'?{ok:true,value:{...state,serverSetting:'http://new-server:8080'}}:{ok:false,error:'offline',status:0});
-  assert.equal(different.element('server').value,'http://new-server:8080');
+  const different=await popup({...state,serverSetting:'http://new-server:1024'},async({action})=>action==='status'?{ok:true,value:{...state,serverSetting:'http://new-server:1024'}}:{ok:false,error:'offline',status:0});
+  assert.equal(different.element('server').value,'http://new-server:1024');
   assert.equal(different.element('name').value,'');
   assert.match(different.element('binding').textContent,/research/);
 });
@@ -54,7 +54,7 @@ test('recovery export contains the selected individual snapshot and can be reimp
 });
 
 test('server host permission excludes port for Firefox-compatible match patterns',async()=>{
-  const ui=await popup({server:'http://192.168.1.10:8080'});
+  const ui=await popup({server:'http://192.168.1.10:1024'});
   ui.element('connection').listeners.submit({preventDefault(){}});
   await settle();
   assert.equal(ui.grants[0].origins[0],'http://192.168.1.10/*');
@@ -63,27 +63,27 @@ test('server host permission excludes port for Firefox-compatible match patterns
 test('profile controls stay hidden after connection failure and when server input changes',async()=>{
   const ui=await popup({},async({action})=>action==='status'?{ok:true,value:{}}:{ok:false,error:'offline',status:0});
   assert.equal(ui.element('profileSection').hidden,true);
-  ui.element('server').value='http://localhost:8080';
+  ui.element('server').value='http://localhost:1024';
   ui.element('connection').listeners.submit({preventDefault(){}});
   await settle();
   assert.equal(ui.element('profileSection').hidden,true);assert.match(ui.element('error').textContent,/offline/);
   const ok=await popup({},async({action})=>({ok:true,value:action==='status'?{}:{profiles:[]}}));
-  ok.element('server').value='http://localhost:8080';ok.element('connection').listeners.submit({preventDefault(){}});await settle();
+  ok.element('server').value='http://localhost:1024';ok.element('connection').listeners.submit({preventDefault(){}});await settle();
   assert.equal(ok.element('profileSection').hidden,false);
   assert.equal(ok.element('syncControls').hidden,true);
-  ok.element('server').value='http://127.0.0.1:8080';ok.element('server').listeners.input();assert.equal(ok.element('profileSection').hidden,true);
+  ok.element('server').value='http://127.0.0.1:1024';ok.element('server').listeners.input();assert.equal(ok.element('profileSection').hidden,true);
 });
 
 test('selecting an existing profile prompts before binding, and cancel leaves it untouched',async()=>{
   const calls=[];
   const ui=await popup({},async message=>{calls.push(message.action);if(message.action==='status')return{ok:true,value:{}};if(message.action==='selectProfile')return{ok:true,value:{created:false,localCount:2,serverCount:3,profile:{name:'research',updated_at:5,tree:{}}}};return{ok:true,value:{profiles:[]}};},()=>false);
-  ui.element('server').value='http://localhost:8080';ui.element('connection').listeners.submit({preventDefault(){}});await settle();
+  ui.element('server').value='http://localhost:1024';ui.element('connection').listeners.submit({preventDefault(){}});await settle();
   ui.element('name').value='research';await ui.element('bind').onclick();
   assert.ok(calls.includes('selectProfile'));assert.equal(calls.includes('bind'),false);
 });
 
 test('renaming refreshes the shared profile name field',async()=>{
-  const state={server:'http://localhost:8080',name:'research',auto:true};
+  const state={server:'http://localhost:1024',name:'research',auto:true};
   const ui=await popup(state,async({action})=>{
     if(action==='status')return{ok:true,value:structuredClone(state)};
     if(action==='list')return{ok:true,value:{profiles:[{name:state.name} ]}};

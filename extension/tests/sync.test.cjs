@@ -8,7 +8,7 @@ function setup(firefox=false,tree=empty()) {
   const engine=new Engine(mock.api,{browser:firefox?{}:null,fetch:remote.fetch,setTimeout:fn=>{timers.push(fn);return timers.length;},clearTimeout:()=>{}});
   return {...mock,remote,engine,timers};
 }
-async function bind(s,tree) {if(tree)s.remote.set(tree);await s.engine.bind('http://localhost:8080','research',s.remote.get());}
+async function bind(s,tree) {if(tree)s.remote.set(tree);await s.engine.bind('http://localhost:1024','research',s.remote.get());}
 const rich=()=>({roots:{toolbar:[bookmark('one'),{type:'folder',title:'Nested',children:[bookmark('two'),{type:'folder',title:'Empty',children:[]}]},bookmark('three')],menu:[bookmark('menu')],other:[bookmark('other')],mobile:[bookmark('mobile')]}});
 
 test('Chrome restores hierarchy, exact ordering, empty folders, preserves permanent roots and round trips to Firefox',async()=>{
@@ -40,19 +40,19 @@ test('named missing profile auto-seeds current nested bookmarks only after conne
     else body=profile;
     return{ok:status<400,status,json:async()=>body};
   };
-  await assert.rejects(s.engine.selectProfile('http://localhost:8080','fresh'),/Connect/);
-  await s.engine.connect('http://localhost:8080');
-  const result=await s.engine.selectProfile('http://localhost:8080','fresh');
+  await assert.rejects(s.engine.selectProfile('http://localhost:1024','fresh'),/Connect/);
+  await s.engine.connect('http://localhost:1024');
+  const result=await s.engine.selectProfile('http://localhost:1024','fresh');
   assert.equal(result.created,true);assert.deepEqual(profile.tree,tree);assert.equal(s.state().profile,'fresh');assert.equal(s.state().auto,true);
   assert.deepEqual(calls,['GET','GET','GET','POST']);
   assert.equal(POLL_MINUTES,5);assert.ok(Object.values(s.calls.alarms).some(alarm=>alarm.periodInMinutes===5));
 });
 test('missing-profile check does not create on server errors and handles concurrent creation as existing',async()=>{
-  const failed=setup();await failed.engine.connect('http://localhost:8080');let posts=0;
+  const failed=setup();await failed.engine.connect('http://localhost:1024');let posts=0;
   failed.engine.fetch=async (url,options={})=>{if(options.method==='POST')posts++;return url.endsWith('/health')?{ok:true,status:200,json:async()=>({})}:url.endsWith('/profiles')?{ok:true,status:200,json:async()=>({profiles:[]})}:{ok:false,status:500,json:async()=>({detail:'disk error'})};};
-  await assert.rejects(failed.engine.selectProfile('http://localhost:8080','fresh'),/disk error/);assert.equal(posts,0);
+  await assert.rejects(failed.engine.selectProfile('http://localhost:1024','fresh'),/disk error/);assert.equal(posts,0);
 
-  const raced=setup();await raced.engine.connect('http://localhost:8080');let profile=null,firstGet=true;
+  const raced=setup();await raced.engine.connect('http://localhost:1024');let profile=null,firstGet=true;
   raced.engine.fetch=async(url,options={})=>{
     if(url.endsWith('/health'))return{ok:true,status:200,json:async()=>({})};
     if(url.endsWith('/profiles'))return{ok:true,status:200,json:async()=>({profiles:[]})};
@@ -60,7 +60,7 @@ test('missing-profile check does not create on server errors and handles concurr
     if(firstGet){firstGet=false;return{ok:false,status:404,json:async()=>({detail:'missing'})};}
     return{ok:true,status:200,json:async()=>profile};
   };
-  const result=await raced.engine.selectProfile('http://localhost:8080','fresh');assert.equal(result.created,false);assert.equal(result.serverCount,0);assert.equal(raced.state().profile,null);
+  const result=await raced.engine.selectProfile('http://localhost:1024','fresh');assert.equal(result.created,false);assert.equal(result.serverCount,0);assert.equal(raced.state().profile,null);
 });
 test('remote apply does not cause repeated uploads even with delayed bookmark events',async()=>{
   const s=setup();s.engine.startEvents();await bind(s,rich());
@@ -79,21 +79,21 @@ test('pending offline edits survive worker restart, retry and only changed tree 
 });
 test('successful binding is persisted for a fresh worker and failed reconnect retains last successful profile',async()=>{
   const s=setup();await bind(s);
-  assert.deepEqual(s.state().lastSyncedBinding,{server:'http://localhost:8080',profile:'research'});
+  assert.deepEqual(s.state().lastSyncedBinding,{server:'http://localhost:1024',profile:'research'});
   const restarted=new Engine(s.api,{browser:null,fetch:s.remote.fetch,setTimeout:()=>1,clearTimeout:()=>{}});
-  assert.deepEqual((await restarted.state()).lastSyncedBinding,{server:'http://localhost:8080',profile:'research'});
+  assert.deepEqual((await restarted.state()).lastSyncedBinding,{server:'http://localhost:1024',profile:'research'});
   s.remote.offline(true);
-  await assert.rejects(restarted.connect('http://different:8080'),/offline/);
-  assert.equal(s.state().serverSetting,'http://different:8080');
-  assert.equal(s.state().server,'http://localhost:8080');assert.equal(s.state().profile,'research');
-  assert.deepEqual(s.state().lastSyncedBinding,{server:'http://localhost:8080',profile:'research'});
+  await assert.rejects(restarted.connect('http://different:1024'),/offline/);
+  assert.equal(s.state().serverSetting,'http://different:1024');
+  assert.equal(s.state().server,'http://localhost:1024');assert.equal(s.state().profile,'research');
+  assert.deepEqual(s.state().lastSyncedBinding,{server:'http://localhost:1024',profile:'research'});
 });
 test('switching servers migrates a legacy binding into last-successful history without binding it to the new server',async()=>{
   const s=setup();
-  s.setState({server:'http://localhost:8080',profile:'research',name:'research',connected:true});
-  await s.engine.connect('http://new-server:8080');
-  assert.equal(s.state().server,'http://new-server:8080');assert.equal(s.state().profile,null);
-  assert.deepEqual(s.state().lastSyncedBinding,{server:'http://localhost:8080',profile:'research'});
+  s.setState({server:'http://localhost:1024',profile:'research',name:'research',connected:true});
+  await s.engine.connect('http://new-server:1024');
+  assert.equal(s.state().server,'http://new-server:1024');assert.equal(s.state().profile,null);
+  assert.deepEqual(s.state().lastSyncedBinding,{server:'http://localhost:1024',profile:'research'});
 });
 test('poll detects missed events after suspension using saved baseline',async()=>{
   const s=setup();await bind(s);
@@ -139,16 +139,16 @@ test('turning auto off retains local edits for explicit Sync now',async()=>{
 test('switching collection replaces local tree and keeps the prior snapshot',async()=>{
   const s=setup();await bind(s,rich());const old=await s.engine.localTree();
   const next=empty();next.roots.other=[bookmark('work')];const profile={...s.remote.get(),name:'work',tree:next,updated_at:2000};
-  await s.engine.bind('http://localhost:8080','work',profile);assert.equal(s.state().profile,'work');assert.deepEqual(await s.engine.localTree(),next);assert.ok(s.state().backups.some(b=>Core.equal(b.tree,old)));
+  await s.engine.bind('http://localhost:1024','work',profile);assert.equal(s.state().profile,'work');assert.deepEqual(await s.engine.localTree(),next);assert.ok(s.state().backups.some(b=>Core.equal(b.tree,old)));
 });
 test('successful profile rename updates the remembered binding name',async()=>{
   const s=setup();await bind(s);
   s.engine.fetch=async(url)=>({ok:true,status:200,json:async()=>({schema_version:1,name:'work',updated_at:1001,tree:empty()})});
   await s.engine.rename('work');
-  assert.deepEqual(s.state().lastSyncedBinding,{server:'http://localhost:8080',profile:'work'});
+  assert.deepEqual(s.state().lastSyncedBinding,{server:'http://localhost:1024',profile:'work'});
 });
 test('repeated recover and recovery-file imports preserve prior last-successful binding',async()=>{
-  const remembered={server:'http://localhost:8080',profile:'research'};
+  const remembered={server:'http://localhost:1024',profile:'research'};
   const recovering=setup();
   recovering.setState({lastSyncedBinding:remembered,backups:[{id:'seed',tree:empty(),created_at:1,label:'seed'}]});
   await recovering.engine.recover();await recovering.engine.recover();
@@ -203,7 +203,7 @@ test('conflict resolution completes before a queued profile switch',async()=>{
   };
   const syncing=s.engine.sync();await writing;
   const work=empty();work.roots.toolbar=[bookmark('work')];
-  const switching=s.engine.bind('http://localhost:8080','work',{schema_version:1,name:'work',tree:work,updated_at:2000});
+  const switching=s.engine.bind('http://localhost:1024','work',{schema_version:1,name:'work',tree:work,updated_at:2000});
   release();await Promise.all([syncing,switching]);
   assert.equal(s.state().profile,'work');assert.deepEqual(await s.engine.localTree(),work);
 });

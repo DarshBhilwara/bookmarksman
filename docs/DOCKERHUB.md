@@ -19,10 +19,10 @@ Test the image using a separate container and volume so it does not access exist
 
 ```sh
 docker run -d --name bookmarksman-check \
-  -p 127.0.0.1:18080:8080 \
+  -p 127.0.0.1:1024:8080 \
   -v bookmarksman-check-data:/data \
   darshbhilwara/bookmarksman:1.0.0
-curl --fail http://127.0.0.1:18080/api/health
+curl --fail http://127.0.0.1:1024/api/health
 docker inspect --format '{{.State.Health.Status}}' bookmarksman-check
 docker logs bookmarksman-check
 docker rm -f bookmarksman-check

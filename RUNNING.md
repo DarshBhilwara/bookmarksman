@@ -26,7 +26,7 @@ Edit `.env.dockerhub` to choose the image, network interface, and host port:
 ```dotenv
 BOOKMARKSMAN_IMAGE=darshbhilwara/bookmarksman:1.0.0
 BOOKMARKSMAN_BIND=0.0.0.0
-BOOKMARKSMAN_PORT=8080
+BOOKMARKSMAN_PORT=1024
 ```
 
 `0.0.0.0` listens on all host interfaces. To accept connections only through your VPN, set `BOOKMARKSMAN_BIND` to the server's VPN interface IP. The API is unauthenticated; keep it on your trusted network.
@@ -51,7 +51,7 @@ services:
     image: darshbhilwara/bookmarksman:1.0.0
     container_name: bookmarksman
     ports:
-      - "0.0.0.0:8080:8080"
+      - "0.0.0.0:1024:8080"
     volumes:
       - bookmarksman-data:/data
     restart: unless-stopped
@@ -60,7 +60,24 @@ volumes:
   bookmarksman-data:
 ```
 
-Replace `0.0.0.0` with your VPN interface IP to restrict access. Change only the first `8080` in the port mapping to choose another host port. The image includes its own health check.
+Replace `0.0.0.0` with your VPN interface IP to restrict access. Change only the first `1024` in the port mapping to choose another host port. The image includes its own health check.
+
+### Docker Hub behind Traefik
+
+If Traefik is already connected to an external Docker network named `proxy`, the repository includes [`docker-compose.traefik.yml`](docker-compose.traefik.yml). It routes `bookmarksman.home` to the API, probes `/api/health`, publishes host port `1024` to container port `8080`, and stores profile files in `/data/configs/bookmarksman` on the Docker host. Traefik reaches the container on the `proxy` network.
+
+Make sure `bookmarksman.home` resolves to the Traefik host on your LAN or VPN, then run:
+
+```sh
+docker network inspect proxy >/dev/null 2>&1 || docker network create proxy
+docker compose -f docker-compose.traefik.yml pull
+docker compose -f docker-compose.traefik.yml up -d
+docker compose -f docker-compose.traefik.yml ps
+curl --fail http://bookmarksman.home/api/health
+curl --fail http://localhost:1024/api/health
+```
+
+The external network must be shared with Traefik. Change the image tag in the Compose file when installing another release. Back up `/data/configs/bookmarksman/profiles` on the host. Use `docker compose -f docker-compose.traefik.yml logs -f bookmarksman` to view logs, and `docker compose -f docker-compose.traefik.yml down` to stop it while retaining the bind-mounted data.
 
 From the directory containing `compose.yaml`:
 
@@ -68,7 +85,7 @@ From the directory containing `compose.yaml`:
 docker compose pull
 docker compose up -d
 docker compose ps
-curl --fail http://localhost:8080/api/health
+curl --fail http://localhost:1024/api/health
 ```
 
 Use the configured VPN address instead of `localhost` if you bind to that interface. To update, change the image version in `compose.yaml` and rerun `pull` and `up -d`. View logs with `docker compose logs -f bookmarksman`; stop with `docker compose down` without `-v`. For backups, use the plain `docker compose` commands under [Source-build or standalone Compose deployment](#source-build-or-standalone-compose-deployment).
@@ -88,21 +105,21 @@ docker compose up -d --build
 docker compose ps
 ```
 
-Without a configured `BOOKMARKSMAN_PORT`, both Compose files fall back to host port 8080. The backend always listens on container port 8080.
+Without a configured `BOOKMARKSMAN_PORT`, both Compose files fall back to host port 1024. The backend always listens on container port 8080.
 
 ### Check the connection
 
-Use your configured host address and port. With an all-interface binding and host port 8080, check locally on the server with:
+Use your configured host address and port. With an all-interface binding and host port 1024, check locally on the server with:
 
 ```sh
-curl --fail http://localhost:8080/api/health
+curl --fail http://localhost:1024/api/health
 ```
 
-For a VPN-only binding, use that VPN address instead of `localhost`. For example, if the configured address is `192.168.1.10` and port is 8080:
+For a VPN-only binding, use that VPN address instead of `localhost`. For example, if the configured address is `192.168.1.10` and port is 1024:
 
 ```sh
-curl --fail http://192.168.1.10:8080/api/health
-curl --fail http://192.168.1.10:8080/api/profiles
+curl --fail http://192.168.1.10:1024/api/health
+curl --fail http://192.168.1.10:1024/api/profiles
 ```
 
 Replace the example address with your own server address. If you copied `.env.example` unchanged for a source build, the local health URL is `http://localhost:1024/api/health`.
@@ -140,7 +157,7 @@ The extension targets Chrome 120 and Firefox 128 or later. Export important book
 ## Connect and select a collection
 
 1. Open the bookmarksman popup.
-2. Enter your server's base URL, including its host port, such as `http://192.168.1.10:8080`. Do not append `/api`.
+2. Enter your server's base URL, including its host port, such as `http://192.168.1.10:1024`. Do not append `/api`.
 3. Click **Connect** and allow access to that server when prompted.
 4. Enter a name such as `research`, or choose an existing suggestion, then click **Use profile**.
 
