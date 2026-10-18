@@ -1,0 +1,8 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>bookmarksman</title><link rel="stylesheet" href="popup.css"></head>
+<body><h1>bookmarksman</h1><form id="connection"><label for="server">Server URL</label><input id="server" type="url" placeholder="http://192.168.1.10:8080" required><button>Connect</button></form>
+<section id="profileSection" hidden><label for="name">Profile name</label><input id="name" list="profiles" maxlength="64" pattern="[A-Za-z0-9_-]+" placeholder="research"><datalist id="profiles"></datalist><button id="bind">Use profile</button><button id="rename" hidden>Rename current profile</button>
+<div id="syncControls" hidden><p><label><input id="auto" type="checkbox"> Automatic synchronization</label></p><button id="sync">Sync now</button></div></section>
+<p id="binding"></p><p id="status" role="status"></p><p id="error" role="alert"></p><p id="times"></p>
+<details><summary>Recovery snapshots</summary><p>Download snapshots before uninstalling. They are stored only in this browser profile.</p><label for="snapshots">Saved snapshots</label><select id="snapshots"></select><button id="export">Export selected snapshot</button><button id="recover">Restore most recent local snapshot…</button><label for="backupFile">Import an exported snapshot file</label><input id="backupFile" type="file" accept="application/json,.json"></details>
+<script src="popup.js"></script></body></html>

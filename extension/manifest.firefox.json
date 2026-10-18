@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "Bookmarksman",
+  "version": "1.0.0",
+  "description": "Simple self-hosted bookmark sync for Chrome and Firefox.",
+  "permissions": ["bookmarks", "storage", "unlimitedStorage", "alarms"],
+  "optional_host_permissions": ["http://*/*", "https://*/*"],
+  "background": { "scripts": ["shared/core.js", "shared/engine.js", "background.js"] },
+  "browser_specific_settings": { "gecko": { "id": "bookmarksman@local", "strict_min_version": "128.0" } },
+  "action": { "default_title": "Bookmarksman", "default_popup": "popup.html" }
+}

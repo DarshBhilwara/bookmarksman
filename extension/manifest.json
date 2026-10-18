@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "Bookmarksman",
+  "version": "1.0.0",
+  "minimum_chrome_version": "120",
+  "description": "Simple self-hosted bookmark sync for Chrome and Firefox.",
+  "permissions": ["bookmarks", "storage", "unlimitedStorage", "alarms"],
+  "optional_host_permissions": ["http://*/*", "https://*/*"],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_title": "Bookmarksman", "default_popup": "popup.html" }
+}
