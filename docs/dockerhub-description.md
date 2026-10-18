@@ -1,8 +1,8 @@
 # bookmarksman
 
-Self-hosted bookmark synchronization for Chrome and Firefox. One lightweight Python/FastAPI backend stores multiple named bookmark collections as JSON files. No database, accounts, analytics, or third-party synchronization service.
+Synchronize bookmark collections between Chrome and Firefox using a server you control. The lightweight Python service stores each named collection as a JSON file. No database, account, cloud service, or telemetry is used.
 
-## Quick start
+## Run
 
 ```sh
 docker run -d --name bookmarksman \
@@ -14,22 +14,21 @@ docker run -d --name bookmarksman \
 curl http://localhost:8080/api/health
 ```
 
-The image serves HTTP on container port **8080**, runs as a non-root user, and includes a health check. Mount **`/data`** persistently; bookmark collections are stored in `/data/profiles/*.json`. Change the host-side port to use another external port. Bind to your host's VPN interface address when restricting access to your mesh network.
+The health endpoint returns `{"status":"ok"}`. Keep the data volume mounted at `/data`; collections are stored under `/data/profiles`. To restrict access, bind port 8080 to your private LAN or VPN address.
 
-## Browser extensions
+The API has no authentication. Anyone with network access can read or change every collection. Run bookmarksman only on a trusted private network. Do not expose it to the public internet.
 
-Get the extensions from [the bookmarksman repository](https://github.com/DarshBhilwara/bookmarksman). Run `python tools/build-extension.py` there, then follow [the installation instructions](https://github.com/DarshBhilwara/bookmarksman/blob/main/RUNNING.md).
+## Install the browser extension
 
-In the popup, connect to your server, enter a profile name, and click **Use profile**. A missing profile is automatically seeded with the browser's current bookmarks. An existing profile asks before replacing local bookmarks. Each browser profile remembers its own server and selection.
+The Chrome and Firefox extension is maintained in the [bookmarksman source repository](https://github.com/DarshBhilwara/bookmarksman), not in this image. Build and load it using the [installation guide](https://github.com/DarshBhilwara/bookmarksman/blob/main/RUNNING.md).
 
-Changes upload after a short debounce; other browsers check every five minutes or when you choose Sync now. Nested folders, empty folders, names, and sibling order are preserved. Conflicts retain a recoverable local copy and apply the latest committed server snapshot. Favicons are not synchronized.
+In the extension popup, connect to the server, enter a collection name, and choose **Use profile**. A new name is initialized with the current browser's bookmarks. An existing collection asks before replacing local bookmarks. Browser profiles remember their server and last synced collection.
 
-## Deployment and backups
+Bookmark changes upload after a short delay; browsers check the server about every five minutes. Names, URLs, folders, nested hierarchy, empty folders, and sibling order are synchronized. When updates conflict, the latest committed server version is applied after saving a recoverable local snapshot. Favicons remain browser-managed.
 
-The API is unauthenticated. Anyone with network access can read and change bookmark collections; use only on a trusted private LAN or VPN. Do not expose it directly to the public internet.
+## Documentation
 
-Back up `/data` or its Docker volume. Removing a container does not remove a named volume, but deleting the volume erases saved profiles.
-
-- [Source and documentation](https://github.com/DarshBhilwara/bookmarksman)
-- [Image-based Docker Compose deployment](https://github.com/DarshBhilwara/bookmarksman/blob/main/docker-compose.dockerhub.yml)
-- [Publishing and upgrade guide](https://github.com/DarshBhilwara/bookmarksman/blob/main/docs/DOCKERHUB.md)
+- [Install and use bookmarksman](https://github.com/DarshBhilwara/bookmarksman/blob/main/RUNNING.md)
+- [Docker Compose example](https://github.com/DarshBhilwara/bookmarksman/blob/main/docker-compose.dockerhub.yml)
+- [API reference](https://github.com/DarshBhilwara/bookmarksman/blob/main/docs/api.md)
+- [Source code](https://github.com/DarshBhilwara/bookmarksman)

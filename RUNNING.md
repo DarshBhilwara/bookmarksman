@@ -1,149 +1,276 @@
-# Running bookmarksman
+# Install and use bookmarksman
 
-## 1. Start the server
+You need Docker with Compose on the server and Python 3 to prepare the extension on the computer running Chrome or Firefox. The server and browser can run on different computers connected by a trusted LAN or VPN.
 
-Install Docker with Compose and Python 3, then open a terminal in the repository:
+## Start the server
+
+Clone or copy this repository onto the server. For a new checkout:
 
 ```sh
-cd ~/bookmarksman
+git clone https://github.com/DarshBhilwara/bookmarksman.git
+cd bookmarksman
 ```
 
-For a first installation, copy the example settings. Skip this command if you already have a configured `.env`:
+Choose one of the following deployment methods. Keep using the same checkout directory and Compose project name so Docker reuses your data volume.
+
+### Use a Docker Hub image
+
+The image name is `darshbhilwara/bookmarksman:1.0.0`. Copy the image configuration for a first installation; keep an existing configuration when updating:
+
+```sh
+cp .env.dockerhub.example .env.dockerhub
+```
+
+Edit `.env.dockerhub` to choose the image, network interface, and host port:
+
+```dotenv
+BOOKMARKSMAN_IMAGE=darshbhilwara/bookmarksman:1.0.0
+BOOKMARKSMAN_BIND=0.0.0.0
+BOOKMARKSMAN_PORT=8080
+```
+
+`0.0.0.0` listens on all host interfaces. To accept connections only through your VPN, set `BOOKMARKSMAN_BIND` to the server's VPN interface IP. The API is unauthenticated; keep it on your trusted network.
+
+Start the backend:
+
+```sh
+docker compose --env-file .env.dockerhub -f docker-compose.dockerhub.yml pull
+docker compose --env-file .env.dockerhub -f docker-compose.dockerhub.yml up -d
+docker compose --env-file .env.dockerhub -f docker-compose.dockerhub.yml ps
+```
+
+If the selected image tag is unavailable or you prefer to build locally, use the source-build method below. Use the image Compose file by itself, without merging it with `docker-compose.yml`.
+
+### Standalone Compose example
+
+For a new deployment without the repository's Compose files, save this as `compose.yaml` in a dedicated deployment directory. Use this method instead of starting a second server alongside an existing installation:
+
+```yaml
+services:
+  bookmarksman:
+    image: darshbhilwara/bookmarksman:1.0.0
+    container_name: bookmarksman
+    ports:
+      - "0.0.0.0:8080:8080"
+    volumes:
+      - bookmarksman-data:/data
+    restart: unless-stopped
+
+volumes:
+  bookmarksman-data:
+```
+
+Replace `0.0.0.0` with your VPN interface IP to restrict access. Change only the first `8080` in the port mapping to choose another host port. The image includes its own health check.
+
+From the directory containing `compose.yaml`:
+
+```sh
+docker compose pull
+docker compose up -d
+docker compose ps
+curl --fail http://localhost:8080/api/health
+```
+
+Use the configured VPN address instead of `localhost` if you bind to that interface. To update, change the image version in `compose.yaml` and rerun `pull` and `up -d`. View logs with `docker compose logs -f bookmarksman`; stop with `docker compose down` without `-v`. For backups, use the plain `docker compose` commands under [Source-build or standalone Compose deployment](#source-build-or-standalone-compose-deployment).
+
+### Build from source
+
+For a first installation, copy the source-build settings:
 
 ```sh
 cp .env.example .env
 ```
 
-Edit `.env` to choose the host address and published port. For your current VPN setup:
-
-```dotenv
-BOOKMARKSMAN_BIND=<your tailscale ip>
-BOOKMARKSMAN_PORT=1024
-```
-
-Use your own VPN address on another machine. The supplied `.env.example` publishes on all host interfaces at port 1024; without `BOOKMARKSMAN_PORT`, Compose falls back to 8080. The API is unauthenticated, so keep access within your trusted LAN or VPN.
-
-Start the server:
+The supplied `.env.example` uses host port **1024**. Edit its bind address and port as needed, then run:
 
 ```sh
-  docker compose up -d --build
-  docker compose ps
+docker compose up -d --build
+docker compose ps
 ```
 
-Check it using the address and port from `.env`:
+Without a configured `BOOKMARKSMAN_PORT`, both Compose files fall back to host port 8080. The backend always listens on container port 8080.
+
+### Check the connection
+
+Use your configured host address and port. With an all-interface binding and host port 8080, check locally on the server with:
 
 ```sh
-curl http://<your tailscale ip>/api/health
-curl http://<your tailscale ip>/api/profiles
+curl --fail http://localhost:8080/api/health
 ```
 
-Expected health response:
+For a VPN-only binding, use that VPN address instead of `localhost`. For example, if the configured address is `192.168.1.10` and port is 8080:
 
-```json
-{"status":"ok"}
+```sh
+curl --fail http://192.168.1.10:8080/api/health
+curl --fail http://192.168.1.10:8080/api/profiles
 ```
 
-An unused server returns `{"profiles":[]}` from the second command. Existing installations return their saved profiles.
+Replace the example address with your own server address. If you copied `.env.example` unchanged for a source build, the local health URL is `http://localhost:1024/api/health`.
 
-If you use the supplied `.env.example` without edits, check `http://localhost:1024/api/health` on the server machine. Without an `.env` file, the Compose fallback is `http://localhost:8080/api/health`.
+The health endpoint returns `{"status":"ok"}`. An unused server returns `{"profiles":[]}` from the profile-list endpoint. There is no website at `/`; the extension is the application interface.
 
-## 2. Build and load the extension
+## Install the extension
 
-From the repository directory:
+On each computer running a browser, clone or copy this repository. From its directory, run:
 
 ```sh
 python tools/build-extension.py
 ```
 
-The generated directories and ZIP files are under `dist/`.
+The build creates a Chrome directory/ZIP and a Firefox unsigned XPI under `dist/`. For private installations that remain after browser restart, follow [the private add-on guide](docs/private-addons.md).
 
 ### Chrome
 
 1. Open `chrome://extensions`.
 2. Enable **Developer mode**.
-3. Click **Load unpacked**.
-4. Select the repository's `dist/bookmarksman-chrome` directory.
+3. Click **Load unpacked** and select `dist/bookmarksman-chrome`.
+
+Keep that folder in place. Chrome retains the locally loaded extension across restarts.
 
 ### Firefox
 
-1. Open `about:debugging#/runtime/this-firefox`.
-2. Click **Load Temporary Add-on**.
-3. Select `dist/bookmarksman-firefox/manifest.json` in the repository.
+For a local unsigned build, use Firefox Developer Edition, Nightly, or ESR with unsigned-add-on support enabled, then install `dist/bookmarksman-firefox-unsigned.xpi` through `about:addons` → gear menu → **Install Add-on From File…**. See [the exact steps and edition requirements](docs/private-addons.md#local-unsigned-package).
 
-Temporary Firefox add-ons are removed when Firefox closes. See the [README installation notes](README.md#install-the-extension) for lasting installation options. Use disposable browser profiles for your first checks, or export existing bookmarks before replacing them. Disable native Chrome/Firefox bookmark sync while using bookmarksman.
+Standard release Firefox requires a signed XPI for permanent installation. Mozilla's unlisted signing channel supports private self-distribution without a public store listing. Follow [the signing steps](docs/private-addons.md#standard-firefox-unlisted-signing) if you use that edition.
 
-## 3. Connect, then choose a profile
+For a temporary installation in standard Firefox, open `about:debugging#/runtime/this-firefox` → **Load Temporary Add-on** and select `dist/bookmarksman-firefox/manifest.json`. No signing is required; it remains installed until Firefox closes. Both this directory and the permanent-install XPI are built together.
 
-1. Open the bookmarksman extension popup.
-2. Enter your server URL, for example `http://100.120.83.124:1024`.
-3. Click **Connect** and grant access to the server when prompted.
-4. After connection succeeds, the **Profile name** field appears. Enter a name such as `research`, or choose an existing suggestion.
-5. Click **Use profile**.
+The extension targets Chrome 120 and Firefox 128 or later. Export important bookmarks using the browser's bookmark manager before the first replacement. Disable native Chrome Sync or Firefox Sync for bookmarks while using bookmarksman so two synchronization systems do not change the same tree.
 
-If the name does not exist, bookmarksman automatically saves this browser's current bookmarks to that new server profile. There is no separate creation or import step.
+## Connect and select a collection
 
-If the name already exists, bookmarksman asks before replacing local bookmarks with the server tree and saves a local recovery snapshot first.
+1. Open the bookmarksman popup.
+2. Enter your server's base URL, including its host port, such as `http://192.168.1.10:8080`. Do not append `/api`.
+3. Click **Connect** and allow access to that server when prompted.
+4. Enter a name such as `research`, or choose an existing suggestion, then click **Use profile**.
 
-Automatic synchronization starts after successful setup. Each installed browser profile saves the server URL and last successfully synced profile. Reopening the popup fills these in before connecting, and shows the last synced pair while offline; profile actions remain unavailable until connection succeeds. A failed connection or restore keeps the last successful profile name. These settings survive ordinary extension reloads and browser restarts while the add-on remains installed. Firefox temporary add-ons are removed when Firefox closes, so use a signed/permanent installation if you want the add-on itself to remain installed after restart; uninstalling the add-on or clearing its storage can erase local settings.
+A new name saves this browser's current bookmarks to the server and starts syncing automatically. An existing name displays local/server bookmark counts and asks before replacing local bookmarks. A recovery snapshot is saved first.
 
-To rename the current server profile, enter its new name in the same field and click **Rename current profile**. Other browsers using the old name must select the new name. Clicking **Use profile** instead selects that name for synchronization.
+On another browser profile, connect to the same server and select the same name. Confirm replacement to receive that collection. Different collection names synchronize independently.
 
-## 4. Check Chrome–Firefox synchronization
+Names use 1–64 ASCII letters, digits, underscores, or hyphens. Each browser profile saves its server address, last successfully synced collection, and automatic-sync setting. The popup shows the saved server and collection even while offline. Uninstalling the extension or clearing its storage can erase these settings and local recovery snapshots.
 
-1. In the first browser, add a test bookmark inside a folder. Include a nested folder and an empty folder if you want to check hierarchy preservation.
-2. Wait about seven seconds for the upload while the browser is awake.
-3. In the other browser, connect to the same server and use the same profile name. Confirm replacement if this is the first binding.
-4. Verify bookmark names, hierarchy, and ordering.
-5. Rename, reorder, or delete a test bookmark in either browser. Wait for upload, then click **Sync now** in the other browser, or wait for its five-minute polling check.
+To switch collections, enter another name and choose **Use profile**. To rename the current server collection, enter its new name and choose **Rename current profile**. Other browsers using the old name must select the new one.
 
-Different server profile names synchronize independently. For a complete acceptance procedure, see [the browser checklist](docs/browser-checks.md). The [verification record](docs/verification.md) distinguishes automated checks from real-browser testing.
+## Synchronization and recovery
 
-## 5. Apply extension updates
+Local changes upload after about seven seconds while the browser is awake. The extension checks the server every five minutes and reconciles at browser startup. Choose **Sync now** for an immediate check. Sleeping computers and browser scheduling can delay background work.
 
-After updating the repository files, rebuild the extension packages:
+If changes conflict, the latest successfully saved server snapshot wins. Pending local changes are saved as a recovery snapshot before the server version is applied. Individual bookmarks are not merged automatically.
+
+If restoration fails or is interrupted, automatic sync pauses to avoid uploading a partial tree. Under **Recovery snapshots**, you can:
+
+- Select a saved snapshot and choose **Export selected snapshot** to download it.
+- Choose **Restore most recent local snapshot** to recover locally.
+- Use **Import an exported snapshot file** to restore a downloaded copy.
+
+Local recovery pauses synchronization and removes the active binding. To save recovered bookmarks to the server, connect and use a new collection name. Selecting an existing collection replaces them with that server collection after confirmation.
+
+Up to ten snapshots are retained locally; an unresolved restore keeps its original recovery copy. Download important snapshots before uninstalling the extension. Avoid editing bookmarks during replacement. If a native bookmark import is interrupted by a background restart, enable automatic sync again after the browser finishes importing.
+
+## Browser differences
+
+The extension maps toolbar, menu, other, and mobile bookmark categories. If a destination browser lacks a category, its contents appear in a reserved folder under Other bookmarks, such as `[bookmarksman-root:menu]` or `[bookmarksman-root:mobile]`. Chrome represents Firefox separators with an empty folder named `[bookmarksman:separator]`. Leave these marker names unchanged so categories and separators survive round trips.
+
+Managed, unknown, or ambiguous root layouts are refused before replacement. Browser-specific URL restrictions can also prevent restoration; the popup reports the failure and retains a recovery snapshot. Favicons and the names of permanent browser roots remain browser-controlled.
+
+## Back up and restore
+
+Back up server collections independently of the extension's local recovery snapshots. Run the following commands from the same checkout and with the same Compose project name as the running service. They use the service's mounted `/data` volume, including Docker's project prefix.
+
+### Docker Hub deployment
+
+Stop the service briefly and stream a backup into the current directory:
 
 ```sh
-python tools/build-extension.py
+docker compose --env-file .env.dockerhub -f docker-compose.dockerhub.yml stop
+docker compose --env-file .env.dockerhub -f docker-compose.dockerhub.yml run --rm --no-deps -T bookmarksman python -c "import sys,tarfile; t=tarfile.open(fileobj=sys.stdout.buffer,mode='w|gz'); t.add('/data/profiles',arcname='profiles'); t.close()" > bookmarksman-data.tar.gz
+docker compose --env-file .env.dockerhub -f docker-compose.dockerhub.yml up -d
 ```
 
-Reload the existing extension:
-
-- Chrome: `chrome://extensions` → bookmarksman → reload icon.
-- Firefox: `about:debugging#/runtime/this-firefox` → bookmarksman → **Reload**.
-
-Reload instead of uninstalling so local settings and recovery snapshots remain available. Extension-only updates do not require rebuilding Docker. For backend updates, run `docker compose up -d --build` again.
-
-## Logs, stopping, and troubleshooting
-
-Follow server logs (press Ctrl+C to stop following):
+Restore a trusted backup:
 
 ```sh
+docker compose --env-file .env.dockerhub -f docker-compose.dockerhub.yml stop
+docker compose --env-file .env.dockerhub -f docker-compose.dockerhub.yml run --rm --no-deps -T bookmarksman python -c "import sys,tarfile; t=tarfile.open(fileobj=sys.stdin.buffer,mode='r|gz'); t.extractall('/data',filter='data'); t.close()" < bookmarksman-data.tar.gz
+docker compose --env-file .env.dockerhub -f docker-compose.dockerhub.yml up -d
+```
+
+### Source-build or standalone Compose deployment
+
+Use the same backup format with the source-build Compose file:
+
+```sh
+docker compose stop
+docker compose run --rm --no-deps -T bookmarksman python -c "import sys,tarfile; t=tarfile.open(fileobj=sys.stdout.buffer,mode='w|gz'); t.add('/data/profiles',arcname='profiles'); t.close()" > bookmarksman-data.tar.gz
+docker compose up -d
+```
+
+To restore:
+
+```sh
+docker compose stop
+docker compose run --rm --no-deps -T bookmarksman python -c "import sys,tarfile; t=tarfile.open(fileobj=sys.stdin.buffer,mode='r|gz'); t.extractall('/data',filter='data'); t.close()" < bookmarksman-data.tar.gz
+docker compose up -d
+```
+
+Restoring replaces matching files; collections absent from the archive remain in the volume. Use a clean destination volume for an exact full restore. Keep backups private because bookmark URLs can contain sensitive information.
+
+### Standalone Docker run deployment
+
+If you used the Docker Hub page's `docker run` example, back up the existing container's mounted data directly. These commands reuse its image and volume, so they do not depend on a Compose project name:
+
+```sh
+docker stop bookmarksman
+docker run --rm --volumes-from bookmarksman:ro --entrypoint python "$(docker inspect --format '{{.Image}}' bookmarksman)" -c "import sys,tarfile; t=tarfile.open(fileobj=sys.stdout.buffer,mode='w|gz'); t.add('/data/profiles',arcname='profiles'); t.close()" > bookmarksman-data.tar.gz
+docker start bookmarksman
+```
+
+To restore a trusted archive:
+
+```sh
+docker stop bookmarksman
+docker run --rm -i --volumes-from bookmarksman --entrypoint python "$(docker inspect --format '{{.Image}}' bookmarksman)" -c "import sys,tarfile; t=tarfile.open(fileobj=sys.stdin.buffer,mode='r|gz'); t.extractall('/data',filter='data'); t.close()" < bookmarksman-data.tar.gz
+docker start bookmarksman
+```
+
+Keep the stopped container in place while copying; `--volumes-from` needs it to identify the mounted data.
+
+## Update, view logs, and stop
+
+For a Docker Hub deployment, choose the desired image version in `.env.dockerhub`, then run:
+
+```sh
+docker compose --env-file .env.dockerhub -f docker-compose.dockerhub.yml pull
+docker compose --env-file .env.dockerhub -f docker-compose.dockerhub.yml up -d
+docker compose --env-file .env.dockerhub -f docker-compose.dockerhub.yml logs -f bookmarksman
+```
+
+Stop it with:
+
+```sh
+docker compose --env-file .env.dockerhub -f docker-compose.dockerhub.yml down
+```
+
+For a source-build deployment, update the repository and run:
+
+```sh
+docker compose up -d --build
 docker compose logs -f bookmarksman
 ```
 
-Stop the server:
+Stop it with `docker compose down`. For either method, omit `-v` to retain the data volume. Back up before upgrading, and keep the same directory and project name. See [the image guide](docs/DOCKERHUB.md#compose-deployment-for-the-published-image) if switching from source builds to Docker Hub.
 
-```sh
-docker compose down
-```
+To update the extension, get the newer repository version and run `python tools/build-extension.py`. Reload Chrome from its existing folder. For a permanently installed Firefox add-on, install the updated XPI over the existing add-on; standard Firefox requires a newly signed package. Follow [the private update instructions](docs/private-addons.md#updates-and-saved-settings). Extension-only changes do not require a Docker rebuild. Avoid uninstalling, which can erase local settings.
 
-The named Docker volume retains your profiles. Avoid `docker compose down -v`, which deletes the data volume. See [backup and restore commands](README.md#backups).
+## Troubleshooting
 
-- **Cannot connect to localhost:** if Docker is bound to `100.120.83.124`, use that VPN address instead of `localhost`. A browser on another machine must use the server's reachable address.
-- **`{"detail":"Not Found"}` at `/`:** expected; there is no server website. Test `/api/health` and put only the base URL in the extension.
-- **Changed `.env` settings:** run `docker compose up -d` to recreate the container with the new published address/port. A simple restart does not change its port mapping.
-- **Old popup or timer error after updating:** rebuild the extension, then reload the existing add-on from its browser extension-management page.
-- **Profile controls do not appear:** check the URL, VPN connectivity, server health, and extension server-access permission; click **Connect** again.
-- **Restore failed:** use the popup's **Recovery snapshots** section to export or restore a saved local copy. Automatic synchronization pauses after a failed restore.
+- **Cannot connect to localhost:** use the configured bind address and port. A browser on another computer must use the server's reachable LAN/VPN address; `localhost` refers to the browser's own computer.
+- **“Not Found” at `/`:** expected; check `/api/health` and enter only the base URL in the popup.
+- **Profile controls are missing:** click **Connect** first. Controls appear after a successful connection.
+- **Network error:** open the exact health URL in the same browser. If it fails, check the address, port, VPN, firewall, and browser proxy. If it succeeds, check the extension's server-access permission and console through its browser-management page.
+- **HTTP is unexpectedly upgraded to HTTPS in Firefox:** rebuild and reload the current extension. Its Firefox policy supports HTTP servers on private networks.
+- **Restore failed:** export the saved recovery snapshot before retrying recovery. Automatic sync stays paused until the operation is resolved.
+- **Port or interface changed in the configuration:** rerun the appropriate `up -d` command. Restarting an existing container alone does not change its published port mapping.
 
-For a Firefox `NetworkError`, first open the exact `/api/health` URL in that same Firefox profile. If it loads, inspect bookmarksman through `about:debugging#/runtime/this-firefox` → **Inspect**, retry **Connect**, and copy the console error. Also check its server-access permission in `about:addons`. If the health URL itself fails, check the server address, published port, VPN reachability, and Firefox proxy settings. The extension now reports missing host permissions separately and includes the failing endpoint in network errors.
-
-### Firefox upgrades HTTP to HTTPS
-
-A console message such as `Content-Security-Policy: Upgrading insecure request` followed by a failed HTTPS request means Firefox's default Manifest V3 policy upgraded the configured HTTP URL. The Firefox manifest now explicitly permits HTTP/HTTPS connections without `upgrade-insecure-requests`, while restricting scripts to packaged files. Rebuild with `python tools/build-extension.py`, reload the existing Firefox add-on, then reconnect using your original `http://` URL. No Docker change or server CORS workaround is needed for this policy issue.
-
-Reference: [Mozilla's Manifest V3 insecure-request policy](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/Content_Security_Policy).
-
-## Run a published Docker Hub image
-
-For publishing commands and a pull-based installation using `docker-compose.dockerhub.yml`, see [the Docker Hub guide](docs/DOCKERHUB.md). Extensions continue to be built and installed from this repository; they are not included in the server image.
+See [the browser checklist](docs/browser-checks.md) to test with disposable profiles, [automated checks](docs/verification.md) for contributor tests, and [the API reference](docs/api.md) for integrations.

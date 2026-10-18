@@ -29,6 +29,18 @@ def build(target: str, manifest_name: str) -> Path:
     return archive
 
 
+def build_firefox_unsigned() -> Path:
+    """Create a Firefox-installable package for local/private distribution."""
+    firefox_zip = build("firefox", "manifest.firefox.json")
+    xpi = DIST / "bookmarksman-firefox-unsigned.xpi"
+    temporary = xpi.with_suffix(".xpi.tmp")
+    shutil.copyfile(firefox_zip, temporary)
+    temporary.replace(xpi)
+    return xpi
+
+
 if __name__ == "__main__":
     print(build("chrome", "manifest.json"))
-    print(build("firefox", "manifest.firefox.json"))
+    print(build_firefox_unsigned())
+    print("Firefox temporary: Load Temporary Add-on using " + str(DIST / "bookmarksman-firefox" / "manifest.json"))
+    print("Firefox XPI is unsigned; standard Firefox will not install it permanently.")

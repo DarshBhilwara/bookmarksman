@@ -1,23 +1,26 @@
-# Verification record
+# Testing and verification
 
-Checks executed in the development workspace:
+This page explains how to check a local copy of bookmarksman and what the automated tests cover. Automated tests use mocked browser APIs; only a real browser can confirm behavior in a particular Chrome or Firefox release. Follow [the browser checklist](browser-checks.md) before relying on the extension with important bookmarks.
 
-- Backend: `.venv/bin/python -m pytest server/tests -q` — 23 passed.
-- Extension sync: `node extension/tests/sync.test.cjs` — 27 passed using mocked bookmark/storage/alarm/HTTP APIs.
-- Popup: `node extension/tests/popup.test.cjs` — 7 passed using a mocked extension page, including connect gating, confirmation cancellation, and rename behavior.
-- JavaScript syntax checks, Python compilation, and browser extension package generation succeeded.
-- `docker compose config --quiet` succeeded.
+## Run automated checks
 
-The backend suite ran on Python 3.14; the Docker image targets Python 3.12. Dependencies were installed from existing local package caches because network package downloads were unavailable in this session.
+Install Python 3 and Node.js. From the repository root on Linux or macOS, create a Python environment, install the server test dependencies, and run the backend and extension tests:
 
-A Docker container was **not launched**: access to `/var/run/docker.sock` was denied. Real Chrome and Firefox acceptance checks were **not executed**. Follow [browser-checks.md](browser-checks.md) with disposable profiles before using your main bookmarks. Automated mocks verify the portable-tree logic and synchronization state machine, not native browser compatibility.
+```sh
+python -m venv .venv
+.venv/bin/pip install -r server/requirements-dev.txt
+.venv/bin/python -m pytest server/tests -q
+node extension/tests/sync.test.cjs
+node extension/tests/popup.test.cjs
+python -m unittest discover -s tools/tests -p 'test_*.py'
+```
 
-Firefox receiver regression: a Window-like fetch/timer test reproduces the reported illegal invocations and verifies the default browser fetch, injected fetch, connection persistence, and profile binding after the fixes. This is an automated simulation; the fix still needs confirmation in Firefox.
+Backend tests cover API validation, JSON persistence, atomic storage, and concurrent revision checks. Extension tests simulate bookmark, storage, alarm, network, and popup APIs. They are useful for regressions but do not exercise real browser permissions, root layouts, suspension, or user interface behavior.
 
-Connection diagnostics tests distinguish a missing host grant from a browser NetworkError, include the failing endpoint, and verify failed connection does not create a profile. They do not establish reachability of a deployed VPN server.
+To check image publishing helper tests and the published-image Compose file, see the commands in [the Docker Hub guide](DOCKERHUB.md). A Compose configuration check does not build or run a Docker image.
 
-Firefox HTTP policy fix: the user's browser console confirmed CSP upgrading the configured HTTP health request to HTTPS. Added an explicit extension-pages policy that omits that upgrade. Rebuilt the packages and verified source, generated Firefox manifest, and packaged ZIP contain the same policy. Runtime verification of the updated Firefox policy remains pending.
+## Manual browser validation
 
-Remembered settings checks: fresh background engine reads stored server/profile, offline popup preloads them before networking, failed reconnects preserve the successful binding, legacy server switching migrates its history, and repeated local recovery/import leaves sync history intact.
+Use disposable Chrome and Firefox profiles, turn off each browser's native bookmark sync, and export an independent bookmark backup first. Check import, binding to an existing collection, nested and empty folders, ordering, cross-browser root fallbacks, upload and polling, offline retry, conflicts, recovery after interrupted restore, and profile switching. The [manual browser checklist](browser-checks.md) gives the steps.
 
-Docker Hub preparation: 9 publishing-script unit tests passed; local and published-image Compose configurations validated. Checked that both use identical persistent volume names and port settings and that the published-image configuration rejects a missing image. Dry runs covered host builds, single-platform local Buildx loads, and multi-platform pushes without invoking Docker. A daemon access check still returned permission denied; no release image was built, tested in a container, or pushed to Docker Hub in this session. Extensions remain in the repository.
+Record browser and operating system versions and any failed steps when reporting a problem. Do not infer browser compatibility from mocked test results alone.

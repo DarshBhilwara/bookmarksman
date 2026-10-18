@@ -1,24 +1,21 @@
-# Publish the bookmarksman backend to Docker Hub
+# Docker Hub image: publishing and installation
 
-Only the backend is published as a container. The Chrome/Firefox extension sources stay in `extension/` in this repository. Run `python tools/build-extension.py` to generate their loadable directories and ZIPs in `dist/`; generated packages are ignored by Git. There are no extension-store publishing steps.
+This guide is for maintainers building or publishing the backend image. Users installing bookmarksman can follow [the running guide](../RUNNING.md). The browser extensions stay in the repository and are installed separately; they are not included in the image.
 
-The Docker Hub repository is **`darshbhilwara/bookmarksman`**. The commands below use that namespace and repository.
+The image repository is `darshbhilwara/bookmarksman`. Publish a version tag before recommending that version to users.
 
-## Build and check locally
+## Build and check a release
 
-Requires Python 3, Docker with Buildx, and access to the running Docker daemon. Run from the repository root:
+Run commands from the repository root. Docker with Buildx and access to the Docker daemon are required to build an image.
+
+Preview the build command, then build an image for the current machine without publishing it:
 
 ```sh
-# Review the command without requiring a Docker daemon.
 python tools/publish-docker.py darshbhilwara 1.0.0 --dry-run
-
-# Build and load an image for this machine; nothing is published.
 python tools/publish-docker.py darshbhilwara 1.0.0
 ```
 
-The build context is restricted to `server/`. Bookmarks, browser settings, repository credentials, and extension packages are not copied into the image. The image runs as a non-root user, stores profiles at `/data/profiles`, and includes a health check and OCI title/source/version metadata.
-
-Run a separate test container and volume so the release check does not modify your current bookmarksman deployment. Change host port 18080 if it is already occupied:
+Test the image using a separate container and volume so it does not access existing bookmark data:
 
 ```sh
 docker run -d --name bookmarksman-check \
@@ -28,46 +25,35 @@ docker run -d --name bookmarksman-check \
 curl --fail http://127.0.0.1:18080/api/health
 docker inspect --format '{{.State.Health.Status}}' bookmarksman-check
 docker logs bookmarksman-check
-```
-
-The health endpoint should return `{"status":"ok"}`. The container's health status may initially be `starting`; wait for its health check to run. Test the extension against `http://127.0.0.1:18080` from the same machine using a disposable browser/profile if desired. To stop and remove just this test container:
-
-```sh
 docker rm -f bookmarksman-check
 ```
 
-Its named test volume remains until you explicitly remove it. Keep your existing production volume intact.
+The health response should be `{"status":"ok"}`. The test volume remains after removing the container and can be reused or explicitly removed when no longer needed. Do not point a release test at a user's production volume.
 
-## Publish
+## Publish a version
 
-1. Create a public repository named `bookmarksman` under the Docker Hub account `darshbhilwara`.
-2. Log in interactively. Use your password or a suitable Docker Hub personal access token when Docker prompts; do not put credentials in scripts, Git, or `.env` files.
-3. Publish the tested version:
+Create a public `bookmarksman` repository under the Docker Hub account `darshbhilwara`. Log in interactively, then build and publish a version:
 
 ```sh
 docker login --username darshbhilwara
 python tools/publish-docker.py darshbhilwara 1.0.0 --push
 ```
 
-`--push` explicitly builds and publishes. Without it, the script only loads an image locally. To also move the `latest` alias, opt in with:
+Use a new version for each release. To also update the `latest` alias, pass `--latest`:
 
 ```sh
 python tools/publish-docker.py darshbhilwara 1.0.0 --push --latest
 ```
 
-Use a fresh version tag for each release. Docker tags can be overwritten unless you configure registry tag immutability; the script does not enforce immutability. Preview any release command with `--dry-run`.
-
-Check Docker Hub's **Tags** page, and inspect the published image:
+Check the published tag and image metadata:
 
 ```sh
 docker buildx imagetools inspect darshbhilwara/bookmarksman:1.0.0
 ```
 
-Copy [the prepared Docker Hub description](dockerhub-description.md) into the repository overview. It links users to this repository for extensions and setup instructions.
+Copy [the prepared repository description](dockerhub-description.md) into the Docker Hub repository overview. It points users to the source repository for extension downloads and setup instructions.
 
-## Optional AMD64 and ARM64 release
-
-The default build targets the host architecture. To publish for 64-bit Intel/AMD and ARM hosts:
+For a multi-platform AMD64 and ARM64 image, create a Buildx builder once, then publish both platforms:
 
 ```sh
 docker buildx create --name bookmarksman-builder --driver docker-container --use
@@ -76,39 +62,13 @@ python tools/publish-docker.py darshbhilwara 1.0.0 \
   --platforms linux/amd64,linux/arm64 --push
 ```
 
-Create the builder only once; select an existing one later with `docker buildx use bookmarksman-builder`. Building for another CPU architecture requires native build nodes or working emulation. Docker Desktop includes emulation; other hosts may need QEMU/binfmt configured. See [Docker's multi-platform guide](https://docs.docker.com/build/building/multi-platform/).
+See [Docker's multi-platform guide](https://docs.docker.com/build/building/multi-platform/) for builder and emulation requirements.
 
-The script requires `--push` for multiple platforms. A single explicit platform, such as `--platforms linux/amd64`, can be loaded locally without publishing.
+## Compose deployment for the published image
 
-## Run the published image
+The user-facing example is [docker-compose.dockerhub.yml](../docker-compose.dockerhub.yml). Use it from a repository checkout with `.env.dockerhub.example` copied to `.env.dockerhub`, as described in the running guide. The Compose service exposes container port 8080, stores data in a named volume, and restarts unless stopped. Keep the volume name stable when upgrading.
 
-For a new deployment, copy the image-based environment example without replacing your existing `.env`:
-
-```sh
-cp .env.dockerhub.example .env.dockerhub
-```
-
-Edit `.env.dockerhub`:
-
-```dotenv
-BOOKMARKSMAN_IMAGE=darshbhilwara/bookmarksman:1.0.0
-BOOKMARKSMAN_BIND=0.0.0.0
-BOOKMARKSMAN_PORT=8080
-```
-
-Set the bind address to your VPN interface IP if you want access only through that interface. Then:
-
-```sh
-docker compose --env-file .env.dockerhub -f docker-compose.dockerhub.yml pull
-docker compose --env-file .env.dockerhub -f docker-compose.dockerhub.yml up -d
-docker compose --env-file .env.dockerhub -f docker-compose.dockerhub.yml logs -f
-```
-
-Use `docker-compose.dockerhub.yml` by itself; do not merge it with the source-build Compose file. The image name is required and Compose reports a clear error if it is empty. To stop, use the same flags with `down`; omit `-v` to retain the data.
-
-### Switch an existing checkout from local builds
-
-Back up first using [the existing backup instructions](../README.md#backups). Keep the same repository directory and Compose project name (including any custom `-p` option). Both Compose files use the same service and volume keys, so the existing named volume is reused. Keep your existing `.env` for its current VPN bind address and port, and supply only the image:
+To switch an existing checkout from source builds to the published image, back up the data first. Keep the same checkout directory and Compose project name so Compose finds the existing volume. Use the image compose file with the existing `.env` values for address and port:
 
 ```sh
 BOOKMARKSMAN_IMAGE=darshbhilwara/bookmarksman:1.0.0 \
@@ -117,15 +77,16 @@ BOOKMARKSMAN_IMAGE=darshbhilwara/bookmarksman:1.0.0 \
   docker compose -f docker-compose.dockerhub.yml up -d
 ```
 
-The container is recreated with the published image; stored JSON remains in the same volume. Do not run the old build-based `up` command afterward unless you want to switch back. For upgrades, change the version and run the same `pull` and `up -d` commands.
+For repeat use, copy `.env.dockerhub.example` to a private env file and pass it with `--env-file`. Do not commit secrets into deployment files. For normal start, backup, restore, and troubleshooting steps, see [Running bookmarksman](../RUNNING.md).
 
 ## Checks
 
+The publishing helper's unit tests and Compose configuration can be checked with:
+
 ```sh
 python -m unittest discover -s tools/tests -p 'test_*.py'
-BOOKMARKSMAN_IMAGE=darshbhilwara/bookmarksman:1.0.0 docker compose -f docker-compose.dockerhub.yml config --quiet
+BOOKMARKSMAN_IMAGE=darshbhilwara/bookmarksman:1.0.0 \
+  docker compose -f docker-compose.dockerhub.yml config --quiet
 ```
 
-The release script tests use mocked Docker commands, not a live daemon. Check [the verification record](verification.md) for what was actually run. Publishing requires your own Docker Hub account and credentials.
-
-References: [Docker image publishing](https://docs.docker.com/docker-hub/repos/manage/hub-images/push/) and [Buildx command reference](https://docs.docker.com/reference/cli/docker/buildx/build/).
+The helper tests mock Docker commands. They do not replace building, starting, and checking the published image. See [the verification guide](verification.md) for automated checks and the browser checklist.
